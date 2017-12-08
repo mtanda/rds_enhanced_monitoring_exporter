@@ -209,16 +209,22 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 type config struct {
 	listenAddress string
 	metricsPath   string
+	configFile    string
 }
 
 func main() {
 	var cfg config
 	flag.StringVar(&cfg.listenAddress, "web.listen-address", ":9201", "Address to listen on for web endpoints.")
 	flag.StringVar(&cfg.metricsPath, "web.telemetry-path", "/metrics", "Path under which to expose metrics.")
+	flag.StringVar(&cfg.configFile, "config.file", "./rds_enhanced_monitoring.yml", "Configuration file path.")
 	flag.Parse()
 
-	region := "ap-northeast-1" // TODO
-	exporter, err := NewExporter(region)
+	exporterCfg, err := LoadConfig(cfg.configFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	exporter, err := NewExporter(exporterCfg.Targets[0].Region)
 	if err != nil {
 		log.Fatal(err)
 	}
