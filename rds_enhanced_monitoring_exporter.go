@@ -15,8 +15,11 @@ import (
 	"github.com/aws/aws-sdk-go/aws/awsutil"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go/service/cloudwatchlogs/cloudwatchlogsiface"
 	"github.com/aws/aws-sdk-go/service/rds"
+	"github.com/aws/aws-sdk-go/service/rds/rdsiface"
 	"github.com/aws/aws-sdk-go/service/resourcegroupstaggingapi"
+	"github.com/aws/aws-sdk-go/service/resourcegroupstaggingapi/resourcegroupstaggingapiiface"
 	"github.com/prometheus/common/log"
 )
 
@@ -25,9 +28,9 @@ const (
 )
 
 type Exporter struct {
-	cwLogsClient *cloudwatchlogs.CloudWatchLogs
-	rdsClient    *rds.RDS
-	rgtClient    *resourcegroupstaggingapi.ResourceGroupsTaggingAPI
+	cwLogsClient cloudwatchlogsiface.CloudWatchLogsAPI
+	rdsClient    rdsiface.RDSAPI
+	rgtClient    resourcegroupstaggingapiiface.ResourceGroupsTaggingAPIAPI
 	lock         sync.RWMutex
 	instanceMap  map[string]rds.DBInstance
 	tagMap       map[string]map[string]string
