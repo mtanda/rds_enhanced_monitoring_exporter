@@ -212,7 +212,7 @@ func main() {
 	var cfg config
 	flag.StringVar(&cfg.listenAddress, "web.listen-address", ":9201", "Address to listen on for web endpoints.")
 	flag.StringVar(&cfg.metricsPath, "web.telemetry-path", "/metrics", "Path under which to expose metrics.")
-	flag.StringVar(&cfg.configFile, "config.file", "./rds_enhanced_monitoring.yml", "Configuration file path.")
+	flag.StringVar(&cfg.configFile, "config.file", "./rds_enhanced_monitoring_exporter.yml", "Configuration file path.")
 	flag.Parse()
 
 	exporterCfg, err := LoadConfig(cfg.configFile)
