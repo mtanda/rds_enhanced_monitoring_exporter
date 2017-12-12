@@ -102,10 +102,8 @@ func outputMetrics(w http.ResponseWriter, m interface{}, format string, prefix s
 		switch field.Kind() {
 		case reflect.Float64:
 			fmt.Fprintf(w, format, prefix+mv.Type().Field(i).Name, label, field.Interface())
-			break
 		case reflect.String:
 			// ignore
-			break
 		case reflect.Slice:
 			for i := 0; i < field.Len(); i++ {
 				copiedLabel := make(Labels)
@@ -118,21 +116,16 @@ func outputMetrics(w http.ResponseWriter, m interface{}, format string, prefix s
 				switch sliceType {
 				case "DiskIO":
 					copiedLabel["__Device__"] = slice.FieldByName("Device").String()
-					break
 				case "FileSys":
 					copiedLabel["__MountPoint__"] = slice.FieldByName("MountPoint").String()
 					copiedLabel["__Name__"] = slice.FieldByName("Name").String()
-					break
 				case "Network":
 					copiedLabel["__Device__"] = slice.FieldByName("Device").String()
-					break
 				}
 				outputMetrics(w, slice.Interface(), format, prefix+sliceType+"_", copiedLabel)
 			}
-			break
 		default:
 			outputMetrics(w, field.Interface(), format, prefix+field.Type().Name()+"_", label)
-			break
 		}
 	}
 }
