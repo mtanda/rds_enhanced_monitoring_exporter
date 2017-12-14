@@ -1,6 +1,9 @@
 package main
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 type RDSOSMetrics struct {
 	CpuUtilization     CpuUtilization    `json:"cpuUtilization"`
@@ -113,5 +116,6 @@ func (l Labels) String() string {
 	for k, v := range l {
 		r = append(r, k+"=\""+v+"\"")
 	}
+	sort.Strings(r)
 	return strings.Join(r, ",")
 }

@@ -3,7 +3,6 @@ package main
 import (
 	"io/ioutil"
 	"net/http/httptest"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -230,8 +229,8 @@ func TestE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := strings.Split(string(body), "\n")[0]
-	r := regexp.MustCompile("rds_enhanced_monitoring_CpuUtilization_Guest{.*} 0.000000 1486977657")
-	if !r.MatchString(got) {
-		t.Errorf("the result is wrong")
+	expect := "rds_enhanced_monitoring_CpuUtilization_Guest{__AvailabilityZone__=\"us-east-1a\",__DBInstanceClass__=\"db.t2.meduim\",__EngineVersion__=\"5.7\",__Engine__=\"mysql\",__InstanceID__=\"AAA\",__StorageType__=\"gp2\",__VpcId__=\"vpc-aaaaaaaa\",__tag_Environment__=\"production\"} 0.000000 1486977657"
+	if expect != got {
+		t.Errorf("expected %f, got %f", expect, got)
 	}
 }
