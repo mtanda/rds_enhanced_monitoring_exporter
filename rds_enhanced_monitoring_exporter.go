@@ -139,12 +139,12 @@ func outputMetrics(w http.ResponseWriter, m interface{}, format string, prefix s
 				sliceType := slice.Type().Name()
 				switch sliceType {
 				case "DiskIO":
-					copiedLabel["__Device__"] = slice.FieldByName("Device").String()
+					copiedLabel["Device"] = slice.FieldByName("Device").String()
 				case "FileSys":
-					copiedLabel["__MountPoint__"] = slice.FieldByName("MountPoint").String()
-					copiedLabel["__Name__"] = slice.FieldByName("Name").String()
+					copiedLabel["MountPoint"] = slice.FieldByName("MountPoint").String()
+					copiedLabel["Name"] = slice.FieldByName("Name").String()
 				case "Network":
-					copiedLabel["__Device__"] = slice.FieldByName("Device").String()
+					copiedLabel["Device"] = slice.FieldByName("Device").String()
 				}
 				outputMetrics(w, slice.Interface(), format, prefix+sliceType+"_", copiedLabel)
 			}
@@ -155,6 +155,8 @@ func outputMetrics(w http.ResponseWriter, m interface{}, format string, prefix s
 }
 
 func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
+	targetLabels := r.URL.Query()["labels[]"]
+
 	var resp cloudwatchlogs.DescribeLogStreamsOutput
 	err := e.cwLogsClient.DescribeLogStreamsPages(&cloudwatchlogs.DescribeLogStreamsInput{
 		LogGroupName: aws.String("RDSOSMetrics"),
@@ -205,24 +207,45 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 
 		timestamp := *events.Events[0].Timestamp / 1000
 		format := namespace + "_%s{%s} %f " + strconv.FormatInt(timestamp, 10) + "\n"
-		label := Labels{
-			"__InstanceID__":       *instance.DBInstanceIdentifier,
-			"__DBInstanceClass__":  *instance.DBInstanceClass,
-			"__StorageType__":      *instance.StorageType,
-			"__AvailabilityZone__": *instance.AvailabilityZone,
-			"__VpcId__":            *instance.DBSubnetGroup.VpcId,
-			"__Engine__":           *instance.Engine,
-			"__EngineVersion__":    *instance.EngineVersion,
+
+		label := Labels{}
+		targetTags := make(map[string]bool)
+		for _, l := range targetLabels {
+			switch l {
+			case "DBInstanceIdentifier":
+				label["DBInstanceIdentifier"] = *instance.DBInstanceIdentifier
+			case "DBInstanceClass":
+				label["DBInstanceClass"] = *instance.DBInstanceClass
+			case "StorageType":
+				label["StorageType"] = *instance.StorageType
+			case "AvailabilityZone":
+				label["AvailabilityZone"] = *instance.AvailabilityZone
+			case "DBSubnetGroup.VpcId":
+				label["VpcId"] = *instance.DBSubnetGroup.VpcId
+			case "Engine":
+				label["Engine"] = *instance.Engine
+			case "EngineVersion":
+				label["EngineVersion"] = *instance.EngineVersion
+			case "IsClusterWriter":
+				e.lock.RLock()
+				if member, ok := e.memberMap[*instance.DBInstanceIdentifier]; ok {
+					if *member.IsClusterWriter {
+						label["IsClusterWriter"] = "true"
+					} else {
+						label["IsClusterWriter"] = "false"
+					}
+				}
+				e.lock.RUnlock()
+			default:
+				if strings.Index(l, "tag_") == 0 {
+					targetTags[l[4:]] = true
+				}
+			}
 		}
 		e.lock.RLock()
 		for k, v := range e.tagMap[*instance.DBInstanceIdentifier] {
-			label["__tag_"+k+"__"] = v
-		}
-		if member, ok := e.memberMap[*instance.DBInstanceIdentifier]; ok {
-			if *member.IsClusterWriter {
-				label["__IsClusterWriter__"] = "true"
-			} else {
-				label["__IsClusterWriter__"] = "false"
+			if targetTags[k] {
+				label["tag_"+k] = v
 			}
 		}
 		e.lock.RUnlock()

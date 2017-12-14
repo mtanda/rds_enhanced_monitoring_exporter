@@ -2,7 +2,9 @@ package main
 
 import (
 	"io/ioutil"
+	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -242,14 +244,19 @@ func TestE2E(t *testing.T) {
 	}
 	e.collectRdsInfo()
 	writer := httptest.NewRecorder()
-	e.exportHandler(writer, nil)
+	request := &http.Request{
+		URL: &url.URL{
+			RawQuery: "labels[]=DBInstanceIdentifier&labels[]=DBInstanceClass&labels[]=StorageType&labels[]=AvailabilityZone&labels[]=DBSubnetGroup.VpcId&labels[]=Engine&labels[]=EngineVersion&labels[]=IsClusterWriter&labels[]=tag_Environment",
+		},
+	}
+	e.exportHandler(writer, request)
 
 	body, err := ioutil.ReadAll(writer.Body)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := strings.Split(string(body), "\n")[0]
-	expect := "rds_enhanced_monitoring_CpuUtilization_Guest{__AvailabilityZone__=\"us-east-1a\",__DBInstanceClass__=\"db.t2.meduim\",__EngineVersion__=\"5.7\",__Engine__=\"mysql\",__InstanceID__=\"AAA\",__IsClusterWriter__=\"true\",__StorageType__=\"gp2\",__VpcId__=\"vpc-aaaaaaaa\",__tag_Environment__=\"production\"} 0.000000 1486977657"
+	expect := "rds_enhanced_monitoring_CpuUtilization_Guest{AvailabilityZone=\"us-east-1a\",DBInstanceClass=\"db.t2.meduim\",DBInstanceIdentifier=\"AAA\",Engine=\"mysql\",EngineVersion=\"5.7\",IsClusterWriter=\"true\",StorageType=\"gp2\",VpcId=\"vpc-aaaaaaaa\",tag_Environment=\"production\"} 0.000000 1486977657"
 	if expect != got {
 		t.Errorf("expected %f, got %f", expect, got)
 	}
