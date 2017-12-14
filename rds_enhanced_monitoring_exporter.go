@@ -33,6 +33,7 @@ type Exporter struct {
 	rgtClient    resourcegroupstaggingapiiface.ResourceGroupsTaggingAPIAPI
 	lock         sync.RWMutex
 	instanceMap  map[string]rds.DBInstance
+	memberMap    map[string]rds.DBClusterMember
 	tagMap       map[string]map[string]string
 }
 
@@ -44,6 +45,7 @@ func NewExporter(region string) (*Exporter, error) {
 		rdsClient:    rds.New(sess),
 		rgtClient:    resourcegroupstaggingapi.New(sess),
 		instanceMap:  make(map[string]rds.DBInstance),
+		memberMap:    make(map[string]rds.DBClusterMember),
 		tagMap:       make(map[string]map[string]string),
 	}, nil
 }
@@ -60,6 +62,20 @@ func (e *Exporter) collectRdsInfo() error {
 		})
 	if err != nil {
 		return err
+	}
+
+	var dbClusters rds.DescribeDBClustersOutput
+	params := &rds.DescribeDBClustersInput{}
+	for {
+		resp, err := e.rdsClient.DescribeDBClusters(params)
+		if err != nil {
+			return err
+		}
+		dbClusters.DBClusters = append(dbClusters.DBClusters, resp.DBClusters...)
+		if resp.Marker == nil {
+			break
+		}
+		params.Marker = resp.Marker
 	}
 
 	var resources resourcegroupstaggingapi.GetResourcesOutput
@@ -82,6 +98,11 @@ func (e *Exporter) collectRdsInfo() error {
 	e.lock.Lock()
 	for _, instance := range dbInstances.DBInstances {
 		e.instanceMap[*instance.DbiResourceId] = *instance
+	}
+	for _, cluster := range dbClusters.DBClusters {
+		for _, member := range cluster.DBClusterMembers {
+			e.memberMap[*member.DBInstanceIdentifier] = *member
+		}
 	}
 	for _, mapping := range resources.ResourceTagMappingList {
 		instanceID := strings.Split(*mapping.ResourceARN, ":")[6]
@@ -196,6 +217,13 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 		e.lock.RLock()
 		for k, v := range e.tagMap[*instance.DBInstanceIdentifier] {
 			label["__tag_"+k+"__"] = v
+		}
+		if member, ok := e.memberMap[*instance.DBInstanceIdentifier]; ok {
+			if *member.IsClusterWriter {
+				label["__IsClusterWriter__"] = "true"
+			} else {
+				label["__IsClusterWriter__"] = "false"
+			}
 		}
 		e.lock.RUnlock()
 		outputMetrics(w, m, format, "", label)

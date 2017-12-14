@@ -182,6 +182,25 @@ func (c mockedRDS) DescribeDBInstancesPages(input *rds.DescribeDBInstancesInput,
 	return nil
 }
 
+func (c mockedRDS) DescribeDBClusters(input *rds.DescribeDBClustersInput) (*rds.DescribeDBClustersOutput, error) {
+	return &rds.DescribeDBClustersOutput{
+		DBClusters: []*rds.DBCluster{
+			&rds.DBCluster{
+				DBClusterMembers: []*rds.DBClusterMember{
+					&rds.DBClusterMember{
+						DBInstanceIdentifier: aws.String("AAA"),
+						IsClusterWriter:      aws.Bool(true),
+					},
+					&rds.DBClusterMember{
+						DBInstanceIdentifier: aws.String("BBB"),
+						IsClusterWriter:      aws.Bool(false),
+					},
+				},
+			},
+		},
+	}, nil
+}
+
 type mockedRGT struct {
 	resourcegroupstaggingapiiface.ResourceGroupsTaggingAPIAPI
 }
@@ -218,6 +237,7 @@ func TestE2E(t *testing.T) {
 		rdsClient:    mockedRDS{},
 		rgtClient:    mockedRGT{},
 		instanceMap:  make(map[string]rds.DBInstance),
+		memberMap:    make(map[string]rds.DBClusterMember),
 		tagMap:       make(map[string]map[string]string),
 	}
 	e.collectRdsInfo()
@@ -229,7 +249,7 @@ func TestE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := strings.Split(string(body), "\n")[0]
-	expect := "rds_enhanced_monitoring_CpuUtilization_Guest{__AvailabilityZone__=\"us-east-1a\",__DBInstanceClass__=\"db.t2.meduim\",__EngineVersion__=\"5.7\",__Engine__=\"mysql\",__InstanceID__=\"AAA\",__StorageType__=\"gp2\",__VpcId__=\"vpc-aaaaaaaa\",__tag_Environment__=\"production\"} 0.000000 1486977657"
+	expect := "rds_enhanced_monitoring_CpuUtilization_Guest{__AvailabilityZone__=\"us-east-1a\",__DBInstanceClass__=\"db.t2.meduim\",__EngineVersion__=\"5.7\",__Engine__=\"mysql\",__InstanceID__=\"AAA\",__IsClusterWriter__=\"true\",__StorageType__=\"gp2\",__VpcId__=\"vpc-aaaaaaaa\",__tag_Environment__=\"production\"} 0.000000 1486977657"
 	if expect != got {
 		t.Errorf("expected %f, got %f", expect, got)
 	}
