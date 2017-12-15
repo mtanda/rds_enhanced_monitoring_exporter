@@ -238,8 +238,8 @@ func TestE2E(t *testing.T) {
 		cwLogsClient: mockedCloudWatchLogs{},
 		rdsClient:    mockedRDS{},
 		rgtClient:    mockedRGT{},
-		instanceMap:  make(map[string]rds.DBInstance),
-		memberMap:    make(map[string]rds.DBClusterMember),
+		instanceMap:  make(map[string]*rds.DBInstance),
+		memberMap:    make(map[string]*rds.DBClusterMember),
 		tagMap:       make(map[string]map[string]string),
 	}
 	e.collectRdsInfo()

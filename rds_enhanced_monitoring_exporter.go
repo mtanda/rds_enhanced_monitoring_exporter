@@ -32,8 +32,8 @@ type Exporter struct {
 	rdsClient    rdsiface.RDSAPI
 	rgtClient    resourcegroupstaggingapiiface.ResourceGroupsTaggingAPIAPI
 	lock         sync.RWMutex
-	instanceMap  map[string]rds.DBInstance
-	memberMap    map[string]rds.DBClusterMember
+	instanceMap  map[string]*rds.DBInstance
+	memberMap    map[string]*rds.DBClusterMember
 	tagMap       map[string]map[string]string
 }
 
@@ -44,8 +44,8 @@ func NewExporter(region string) (*Exporter, error) {
 		cwLogsClient: cloudwatchlogs.New(sess),
 		rdsClient:    rds.New(sess),
 		rgtClient:    resourcegroupstaggingapi.New(sess),
-		instanceMap:  make(map[string]rds.DBInstance),
-		memberMap:    make(map[string]rds.DBClusterMember),
+		instanceMap:  make(map[string]*rds.DBInstance),
+		memberMap:    make(map[string]*rds.DBClusterMember),
 		tagMap:       make(map[string]map[string]string),
 	}, nil
 }
@@ -97,11 +97,11 @@ func (e *Exporter) collectRdsInfo() error {
 
 	e.lock.Lock()
 	for _, instance := range dbInstances.DBInstances {
-		e.instanceMap[*instance.DbiResourceId] = *instance
+		e.instanceMap[*instance.DbiResourceId] = instance
 	}
 	for _, cluster := range dbClusters.DBClusters {
 		for _, member := range cluster.DBClusterMembers {
-			e.memberMap[*member.DBInstanceIdentifier] = *member
+			e.memberMap[*member.DBInstanceIdentifier] = member
 		}
 	}
 	for _, mapping := range resources.ResourceTagMappingList {
