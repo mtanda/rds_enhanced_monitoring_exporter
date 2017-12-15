@@ -41,6 +41,7 @@ Allow following API call for this exporter.
             "Effect": "Allow",
             "Action": [
                 "rds:DescribeDBInstances",
+                "rds:DescribeDBClusters",
                 "tag:getResources"
             ],
             "Resource": [
