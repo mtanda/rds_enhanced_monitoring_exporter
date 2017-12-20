@@ -236,6 +236,26 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 				e.lock.RUnlock()
+			case "RDSInstanceType":
+				e.lock.RLock()
+				switch *instance.Engine {
+				case "aurora":
+					if member, ok := e.memberMap[*instance.DBInstanceIdentifier]; ok {
+						if *member.IsClusterWriter {
+							label["RDSInstanceType"] = "writer"
+						} else {
+							label["RDSInstanceType"] = "reader"
+						}
+					}
+				case "mysql":
+					if instance.ReadReplicaSourceDBInstanceIdentifier == nil {
+						label["RDSInstanceType"] = "master"
+					} else {
+						label["RDSInstanceType"] = "slave"
+
+					}
+				}
+				e.lock.RUnlock()
 			default:
 				if strings.Index(l, "tag_") == 0 {
 					targetTags[l[4:]] = true
