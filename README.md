@@ -1,4 +1,4 @@
-# RDS Enhanced Monitorijng Exporter for Prometheus
+# RDS Enhanced Monitoring Exporter for Prometheus
 
 Export RDS Enhanced Monitoring Metrics.
 
