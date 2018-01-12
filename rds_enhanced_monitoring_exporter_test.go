@@ -24,10 +24,10 @@ type mockedCloudWatchLogs struct {
 func (c mockedCloudWatchLogs) DescribeLogStreamsPages(input *cloudwatchlogs.DescribeLogStreamsInput, fn func(*cloudwatchlogs.DescribeLogStreamsOutput, bool) bool) error {
 	fn(&cloudwatchlogs.DescribeLogStreamsOutput{
 		LogStreams: []*cloudwatchlogs.LogStream{
-			&cloudwatchlogs.LogStream{
+			{
 				LogStreamName: aws.String("db-AAAAAAAAAAAAAAAAAAAAAAAAAA"),
 			},
-			&cloudwatchlogs.LogStream{
+			{
 				LogStreamName: aws.String("db-BBBBBBBBBBBBBBBBBBBBBBBBBB"),
 			},
 		},
@@ -136,11 +136,11 @@ func (c mockedCloudWatchLogs) GetLogEvents(input *cloudwatchlogs.GetLogEventsInp
 	}
 	return &cloudwatchlogs.GetLogEventsOutput{
 		Events: []*cloudwatchlogs.OutputLogEvent{
-			&cloudwatchlogs.OutputLogEvent{
+			{
 				Message:   aws.String(genMessage("AAA", "db-AAAAAAAAAAAAAAAAAAAAAAAAAA")),
 				Timestamp: aws.Int64(1486977657000),
 			},
-			&cloudwatchlogs.OutputLogEvent{
+			{
 				Message:   aws.String(genMessage("BBB", "db-BBBBBBBBBBBBBBBBBBBBBBBBBB")),
 				Timestamp: aws.Int64(1486977657000),
 			},
@@ -155,7 +155,7 @@ type mockedRDS struct {
 func (c mockedRDS) DescribeDBInstancesPages(input *rds.DescribeDBInstancesInput, fn func(*rds.DescribeDBInstancesOutput, bool) bool) error {
 	fn(&rds.DescribeDBInstancesOutput{
 		DBInstances: []*rds.DBInstance{
-			&rds.DBInstance{
+			{
 				DbiResourceId:        aws.String("db-AAAAAAAAAAAAAAAAAAAAAAAAAA"),
 				DBInstanceIdentifier: aws.String("AAA"),
 				DBInstanceClass:      aws.String("db.t2.meduim"),
@@ -167,7 +167,7 @@ func (c mockedRDS) DescribeDBInstancesPages(input *rds.DescribeDBInstancesInput,
 				Engine:        aws.String("mysql"),
 				EngineVersion: aws.String("5.7"),
 			},
-			&rds.DBInstance{
+			{
 				DbiResourceId:        aws.String("db-BBBBBBBBBBBBBBBBBBBBBBBBBB"),
 				DBInstanceIdentifier: aws.String("BBB"),
 				DBInstanceClass:      aws.String("db.t2.meduim"),
@@ -187,13 +187,13 @@ func (c mockedRDS) DescribeDBInstancesPages(input *rds.DescribeDBInstancesInput,
 func (c mockedRDS) DescribeDBClusters(input *rds.DescribeDBClustersInput) (*rds.DescribeDBClustersOutput, error) {
 	return &rds.DescribeDBClustersOutput{
 		DBClusters: []*rds.DBCluster{
-			&rds.DBCluster{
+			{
 				DBClusterMembers: []*rds.DBClusterMember{
-					&rds.DBClusterMember{
+					{
 						DBInstanceIdentifier: aws.String("AAA"),
 						IsClusterWriter:      aws.Bool(true),
 					},
-					&rds.DBClusterMember{
+					{
 						DBInstanceIdentifier: aws.String("BBB"),
 						IsClusterWriter:      aws.Bool(false),
 					},
@@ -210,19 +210,19 @@ type mockedRGT struct {
 func (c mockedRGT) GetResourcesPages(input *resourcegroupstaggingapi.GetResourcesInput, fn func(*resourcegroupstaggingapi.GetResourcesOutput, bool) bool) error {
 	fn(&resourcegroupstaggingapi.GetResourcesOutput{
 		ResourceTagMappingList: []*resourcegroupstaggingapi.ResourceTagMapping{
-			&resourcegroupstaggingapi.ResourceTagMapping{
+			{
 				ResourceARN: aws.String("arn:aws:rds:us-east-1:111111111111:db:AAA"),
 				Tags: []*resourcegroupstaggingapi.Tag{
-					&resourcegroupstaggingapi.Tag{
+					{
 						Key:   aws.String("Environment"),
 						Value: aws.String("production"),
 					},
 				},
 			},
-			&resourcegroupstaggingapi.ResourceTagMapping{
+			{
 				ResourceARN: aws.String("arn:aws:rds:us-east-1:111111111111:db:BBB"),
 				Tags: []*resourcegroupstaggingapi.Tag{
-					&resourcegroupstaggingapi.Tag{
+					{
 						Key:   aws.String("Environment"),
 						Value: aws.String("production"),
 					},
