@@ -256,7 +256,7 @@ func TestE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := strings.Split(string(body), "\n")[0]
-	expect := "rds_enhanced_monitoring_CpuUtilization_Guest{AvailabilityZone=\"us-east-1a\",DBInstanceClass=\"db.t2.meduim\",DBInstanceIdentifier=\"AAA\",Engine=\"mysql\",EngineVersion=\"5.7\",IsClusterWriter=\"true\",StorageType=\"gp2\",VpcId=\"vpc-aaaaaaaa\",tag_Environment=\"production\"} 0.000000 1486977657"
+	expect := "rds_enhanced_monitoring_CpuUtilization_Guest{AvailabilityZone=\"us-east-1a\",DBInstanceClass=\"db.t2.meduim\",DBInstanceIdentifier=\"AAA\",Engine=\"mysql\",EngineVersion=\"5.7\",IsClusterWriter=\"true\",StorageType=\"gp2\",VpcId=\"vpc-aaaaaaaa\",tag_Environment=\"production\"} 0.000000 1486977657000"
 	if expect != got {
 		t.Errorf("expected %f, got %f", expect, got)
 	}

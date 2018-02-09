@@ -212,7 +212,7 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		timestamp := *events.Events[0].Timestamp / 1000
-		format := namespace + "_%s{%s} %f " + strconv.FormatInt(timestamp, 10) + "\n"
+		format := namespace + "_%s{%s} %f " + strconv.FormatInt(timestamp, 10) + "000\n"
 
 		label := Labels{}
 		targetTags := make(map[string]bool)
