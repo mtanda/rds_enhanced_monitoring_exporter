@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/awsutil"
+	"github.com/aws/aws-sdk-go/aws/ec2metadata"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs/cloudwatchlogsiface"
@@ -279,6 +281,28 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func GetDefaultRegion() (string, error) {
+	var region string
+
+	metadata := ec2metadata.New(session.New(), &aws.Config{
+		MaxRetries: aws.Int(0),
+	})
+	if metadata.Available() {
+		var err error
+		region, err = metadata.Region()
+		if err != nil {
+			return "", err
+		}
+	} else {
+		region = os.Getenv("AWS_REGION")
+		if region == "" {
+			region = "us-east-1"
+		}
+	}
+
+	return region, nil
+}
+
 type config struct {
 	listenAddress string
 	metricsPath   string
@@ -297,6 +321,15 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// set default region
+	region, err := GetDefaultRegion()
+	if err != nil {
+		log.Fatal(err)
+	}
+	if len(exporterCfg.Targets) == 0 {
+		exporterCfg.Targets = make([]Target, 1)
+		exporterCfg.Targets[0] = Target{Region: region}
+	}
 	exporter, err := NewExporter(exporterCfg.Targets[0].Region)
 	if err != nil {
 		log.Fatal(err)
