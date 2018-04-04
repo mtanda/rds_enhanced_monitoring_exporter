@@ -36,20 +36,25 @@ type CpuUtilization struct {
 }
 
 type DiskIO struct {
-	AvgQueueLen float64 `json:"avgQueueLen"`
-	AvgReqSz    float64 `json:"avgReqSz"`
-	Await       float64 `json:"await"`
-	Device      string  `json:"device"`
-	ReadIOsPS   float64 `json:"readIOsPS"`
-	ReadKb      float64 `json:"readKb"`
-	ReadKbPS    float64 `json:"readKbPS"`
-	RrqmPS      float64 `json:"rrqmPS"`
-	Tps         float64 `json:"tps"`
-	Util        float64 `json:"util"`
-	WriteIOsPS  float64 `json:"writeIOsPS"`
-	WriteKb     float64 `json:"writeKb"`
-	WriteKbPS   float64 `json:"writeKbPS"`
-	WrqmPS      float64 `json:"wrqmPS"`
+	AvgQueueLen     float64 `json:"avgQueueLen"`
+	AvgReqSz        float64 `json:"avgReqSz"`
+	Await           float64 `json:"await"`
+	Device          string  `json:"device"`
+	ReadIOsPS       float64 `json:"readIOsPS"`
+	ReadKb          float64 `json:"readKb"`
+	ReadKbPS        float64 `json:"readKbPS"`
+	RrqmPS          float64 `json:"rrqmPS"`
+	Tps             float64 `json:"tps"`
+	Util            float64 `json:"util"`
+	WriteIOsPS      float64 `json:"writeIOsPS"`
+	WriteKb         float64 `json:"writeKb"`
+	WriteKbPS       float64 `json:"writeKbPS"`
+	WrqmPS          float64 `json:"wrqmPS"`
+	ReadLatency     float64 `json:"readLatency"`
+	WriteLatency    float64 `json:"writeLatency"`
+	ReadThroughput  float64 `json:"readThroughput"`
+	WriteThroughput float64 `json:"writeThroughput"`
+	DiskQueueDepth  float64 `json:"diskQueueDepth"`
 }
 
 type FileSys struct {
