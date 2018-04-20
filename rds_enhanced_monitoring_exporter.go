@@ -24,6 +24,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/resourcegroupstaggingapi"
 	"github.com/aws/aws-sdk-go/service/resourcegroupstaggingapi/resourcegroupstaggingapiiface"
 	"github.com/prometheus/common/log"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -119,19 +120,20 @@ func (e *Exporter) collectRdsInfo() error {
 	return nil
 }
 
-func outputMetrics(w http.ResponseWriter, m interface{}, format string, prefix string, label Labels) {
+func outputMetrics(w http.ResponseWriter, m interface{}, format string, prefix string, label Labels) string {
 	mv := reflect.ValueOf(m)
 	if mv.Kind() != reflect.Struct {
-		return
+		return ""
 	}
 	for i := 0; i < mv.NumField(); i++ {
 		field := mv.Field(i)
 		switch field.Kind() {
 		case reflect.Float64:
-			fmt.Fprintf(w, format, prefix+mv.Type().Field(i).Name, label, field.Interface())
+			return fmt.Sprintf(format, prefix+mv.Type().Field(i).Name, label, field.Interface())
 		case reflect.String:
 			// ignore
 		case reflect.Slice:
+			buf := make([]string, 0)
 			for i := 0; i < field.Len(); i++ {
 				copiedLabel := make(Labels)
 				for k, v := range label {
@@ -149,12 +151,14 @@ func outputMetrics(w http.ResponseWriter, m interface{}, format string, prefix s
 				case "Network":
 					copiedLabel["Device"] = slice.FieldByName("Device").String()
 				}
-				outputMetrics(w, slice.Interface(), format, prefix+sliceType+"_", copiedLabel)
+				buf = append(buf, outputMetrics(w, slice.Interface(), format, prefix+sliceType+"_", copiedLabel))
 			}
+			return strings.Join(buf, "\n")
 		default:
-			outputMetrics(w, field.Interface(), format, prefix+field.Type().Name()+"_", label)
+			return outputMetrics(w, field.Interface(), format, prefix+field.Type().Name()+"_", label)
 		}
 	}
+	return ""
 }
 
 func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
@@ -182,103 +186,117 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	buf := make([]string, 0)
+	eg := errgroup.Group{}
 	for _, stream := range resp.LogStreams {
-		e.lock.RLock()
-		instance, ok := e.instanceMap[*stream.LogStreamName]
-		if !ok {
-			e.lock.RUnlock()
-			continue
-		}
-		e.lock.RUnlock()
-
-		events, err := e.cwLogsClient.GetLogEvents(&cloudwatchlogs.GetLogEventsInput{
-			LogGroupName:  aws.String("RDSOSMetrics"),
-			LogStreamName: stream.LogStreamName,
-			StartFromHead: aws.Bool(false),
-			Limit:         aws.Int64(1),
-		})
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		if len(events.Events) == 0 {
-			continue
-		}
-
-		var m RDSOSMetrics
-		err = json.Unmarshal([]byte(*events.Events[0].Message), &m)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		timestamp := *events.Events[0].Timestamp / 1000
-		format := namespace + "_%s{%s} %f " + strconv.FormatInt(timestamp, 10) + "000\n"
-
-		label := Labels{}
-		targetTags := make(map[string]bool)
-		for _, l := range targetLabels {
-			switch l {
-			case "DBInstanceIdentifier":
-				label["DBInstanceIdentifier"] = *instance.DBInstanceIdentifier
-			case "DBInstanceClass":
-				label["DBInstanceClass"] = *instance.DBInstanceClass
-			case "StorageType":
-				label["StorageType"] = *instance.StorageType
-			case "AvailabilityZone":
-				label["AvailabilityZone"] = *instance.AvailabilityZone
-			case "DBSubnetGroup.VpcId":
-				label["VpcId"] = *instance.DBSubnetGroup.VpcId
-			case "Engine":
-				label["Engine"] = *instance.Engine
-			case "EngineVersion":
-				label["EngineVersion"] = *instance.EngineVersion
-			case "IsClusterWriter":
-				e.lock.RLock()
-				if member, ok := e.memberMap[*instance.DBInstanceIdentifier]; ok {
-					if *member.IsClusterWriter {
-						label["IsClusterWriter"] = "true"
-					} else {
-						label["IsClusterWriter"] = "false"
-					}
-				}
+		s := stream
+		eg.Go(func() error {
+			e.lock.RLock()
+			instance, ok := e.instanceMap[*s.LogStreamName]
+			if !ok {
 				e.lock.RUnlock()
-			case "RDSInstanceType":
-				e.lock.RLock()
-				switch *instance.Engine {
-				case "aurora":
+				return nil
+			}
+			e.lock.RUnlock()
+
+			events, err := e.cwLogsClient.GetLogEvents(&cloudwatchlogs.GetLogEventsInput{
+				LogGroupName:  aws.String("RDSOSMetrics"),
+				LogStreamName: s.LogStreamName,
+				StartFromHead: aws.Bool(false),
+				Limit:         aws.Int64(1),
+			})
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return err
+			}
+
+			if len(events.Events) == 0 {
+				return nil
+			}
+
+			var m RDSOSMetrics
+			err = json.Unmarshal([]byte(*events.Events[0].Message), &m)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return err
+			}
+
+			timestamp := *events.Events[0].Timestamp / 1000
+			format := namespace + "_%s{%s} %f " + strconv.FormatInt(timestamp, 10) + "000"
+
+			label := Labels{}
+			targetTags := make(map[string]bool)
+			for _, l := range targetLabels {
+				switch l {
+				case "DBInstanceIdentifier":
+					label["DBInstanceIdentifier"] = *instance.DBInstanceIdentifier
+				case "DBInstanceClass":
+					label["DBInstanceClass"] = *instance.DBInstanceClass
+				case "StorageType":
+					label["StorageType"] = *instance.StorageType
+				case "AvailabilityZone":
+					label["AvailabilityZone"] = *instance.AvailabilityZone
+				case "DBSubnetGroup.VpcId":
+					label["VpcId"] = *instance.DBSubnetGroup.VpcId
+				case "Engine":
+					label["Engine"] = *instance.Engine
+				case "EngineVersion":
+					label["EngineVersion"] = *instance.EngineVersion
+				case "IsClusterWriter":
+					e.lock.RLock()
 					if member, ok := e.memberMap[*instance.DBInstanceIdentifier]; ok {
 						if *member.IsClusterWriter {
-							label["RDSInstanceType"] = "writer"
+							label["IsClusterWriter"] = "true"
 						} else {
-							label["RDSInstanceType"] = "reader"
+							label["IsClusterWriter"] = "false"
 						}
 					}
-				case "mysql":
-					if instance.ReadReplicaSourceDBInstanceIdentifier == nil {
-						label["RDSInstanceType"] = "master"
-					} else {
-						label["RDSInstanceType"] = "slave"
+					e.lock.RUnlock()
+				case "RDSInstanceType":
+					e.lock.RLock()
+					switch *instance.Engine {
+					case "aurora":
+						if member, ok := e.memberMap[*instance.DBInstanceIdentifier]; ok {
+							if *member.IsClusterWriter {
+								label["RDSInstanceType"] = "writer"
+							} else {
+								label["RDSInstanceType"] = "reader"
+							}
+						}
+					case "mysql":
+						if instance.ReadReplicaSourceDBInstanceIdentifier == nil {
+							label["RDSInstanceType"] = "master"
+						} else {
+							label["RDSInstanceType"] = "slave"
 
+						}
+					}
+					e.lock.RUnlock()
+				default:
+					if strings.Index(l, "tag_") == 0 {
+						targetTags[l[4:]] = true
 					}
 				}
-				e.lock.RUnlock()
-			default:
-				if strings.Index(l, "tag_") == 0 {
-					targetTags[l[4:]] = true
+			}
+			e.lock.RLock()
+			for k, v := range e.tagMap[*instance.DBInstanceIdentifier] {
+				if targetTags[k] {
+					label["tag_"+k] = v
 				}
 			}
-		}
-		e.lock.RLock()
-		for k, v := range e.tagMap[*instance.DBInstanceIdentifier] {
-			if targetTags[k] {
-				label["tag_"+k] = v
-			}
-		}
-		e.lock.RUnlock()
-		outputMetrics(w, m, format, "", label)
+			e.lock.RUnlock()
+			buf = append(buf, outputMetrics(w, m, format, "", label))
+			return nil
+		})
 	}
+
+	if err := eg.Wait(); err != nil {
+		log.Errorln("error: ", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(fmt.Sprintf("error: %s", err)))
+		return
+	}
+	fmt.Fprintf(w, strings.Join(buf, "\n"))
 }
 
 func GetDefaultRegion() (string, error) {
