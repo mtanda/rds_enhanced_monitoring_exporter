@@ -284,7 +284,11 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 func GetDefaultRegion() (string, error) {
 	var region string
 
-	metadata := ec2metadata.New(session.New(), &aws.Config{
+	sess, err := session.NewSession()
+	if err != nil {
+		return "", err
+	}
+	metadata := ec2metadata.New(sess, &aws.Config{
 		MaxRetries: aws.Int(0),
 	})
 	if metadata.Available() {
