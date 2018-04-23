@@ -187,6 +187,7 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	buf := make([]string, 0)
+	var mu sync.RWMutex
 	eg := errgroup.Group{}
 	for _, stream := range resp.LogStreams {
 		s := stream
@@ -285,7 +286,9 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			e.lock.RUnlock()
+			mu.Lock()
 			buf = append(buf, outputMetrics(w, m, format, "", label))
+			mu.Unlock()
 			return nil
 		})
 	}
