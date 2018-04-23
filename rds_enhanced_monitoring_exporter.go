@@ -170,7 +170,9 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 	}, func(page *cloudwatchlogs.DescribeLogStreamsOutput, lastPage bool) bool {
 		streams, _ := awsutil.ValuesAtPath(page, "LogStreams")
 		for _, stream := range streams {
-			resp.LogStreams = append(resp.LogStreams, stream.(*cloudwatchlogs.LogStream))
+			if time.Unix(*stream.(*cloudwatchlogs.LogStream).LastEventTimestamp/1000, 0).After(time.Now().Add(-1 * time.Hour)) {
+				resp.LogStreams = append(resp.LogStreams, stream.(*cloudwatchlogs.LogStream))
+			}
 		}
 		return !lastPage
 	})
