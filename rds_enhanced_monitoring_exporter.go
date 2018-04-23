@@ -120,20 +120,19 @@ func (e *Exporter) collectRdsInfo() error {
 	return nil
 }
 
-func outputMetrics(w http.ResponseWriter, m interface{}, format string, prefix string, label Labels) string {
+func outputMetrics(buf []string, m interface{}, format string, prefix string, label Labels) []string {
 	mv := reflect.ValueOf(m)
 	if mv.Kind() != reflect.Struct {
-		return ""
+		return buf
 	}
 	for i := 0; i < mv.NumField(); i++ {
 		field := mv.Field(i)
 		switch field.Kind() {
 		case reflect.Float64:
-			return fmt.Sprintf(format, prefix+mv.Type().Field(i).Name, label, field.Interface())
+			buf = append(buf, fmt.Sprintf(format, prefix+mv.Type().Field(i).Name, label, field.Interface()))
 		case reflect.String:
 			// ignore
 		case reflect.Slice:
-			buf := make([]string, 0)
 			for i := 0; i < field.Len(); i++ {
 				copiedLabel := make(Labels)
 				for k, v := range label {
@@ -151,14 +150,13 @@ func outputMetrics(w http.ResponseWriter, m interface{}, format string, prefix s
 				case "Network":
 					copiedLabel["Device"] = slice.FieldByName("Device").String()
 				}
-				buf = append(buf, outputMetrics(w, slice.Interface(), format, prefix+sliceType+"_", copiedLabel))
+				buf = append(buf, outputMetrics(buf, slice.Interface(), format, prefix+sliceType+"_", copiedLabel)...)
 			}
-			return strings.Join(buf, "\n")
 		default:
-			return outputMetrics(w, field.Interface(), format, prefix+field.Type().Name()+"_", label)
+			buf = append(buf, outputMetrics(buf, field.Interface(), format, prefix+field.Type().Name()+"_", label)...)
 		}
 	}
-	return ""
+	return buf
 }
 
 func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
@@ -287,7 +285,7 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			e.lock.RUnlock()
 			mu.Lock()
-			buf = append(buf, outputMetrics(w, m, format, "", label))
+			buf = append(buf, outputMetrics(make([]string, 0), m, format, "", label)...)
 			mu.Unlock()
 			return nil
 		})
