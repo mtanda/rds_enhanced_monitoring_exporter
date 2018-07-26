@@ -257,6 +257,8 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 					e.lock.RLock()
 					switch *instance.Engine {
 					case "aurora":
+						fallthrough
+					case "aurora-mysql":
 						if member, ok := e.memberMap[*instance.DBInstanceIdentifier]; ok {
 							if *member.IsClusterWriter {
 								label["RDSInstanceType"] = "writer"
