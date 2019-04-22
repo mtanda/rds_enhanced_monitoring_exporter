@@ -196,7 +196,8 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 		eg.Go(func() error {
 			e.lock.RLock()
 			instance, ok := e.instanceMap[*s.LogStreamName]
-			if !ok {
+			_, isSecondary := e.instanceMap[*s.LogStreamName+"-secondary"]
+			if !ok && !isSecondary {
 				e.lock.RUnlock()
 				return nil
 			}
@@ -232,13 +233,13 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 			for _, l := range targetLabels {
 				switch l {
 				case "DBInstanceIdentifier":
-					label["DBInstanceIdentifier"] = *instance.DBInstanceIdentifier
+					label["DBInstanceIdentifier"] = *instance.DBInstanceIdentifier //TODO
 				case "DBInstanceClass":
 					label["DBInstanceClass"] = *instance.DBInstanceClass
 				case "StorageType":
 					label["StorageType"] = *instance.StorageType
 				case "AvailabilityZone":
-					label["AvailabilityZone"] = *instance.AvailabilityZone
+					label["AvailabilityZone"] = *instance.AvailabilityZone //TODO
 				case "DBSubnetGroup.VpcId":
 					label["VpcId"] = *instance.DBSubnetGroup.VpcId
 				case "Engine":
