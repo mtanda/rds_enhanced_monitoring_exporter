@@ -144,6 +144,8 @@ func outputMetrics(buf []string, m interface{}, format string, prefix string, la
 				switch sliceType {
 				case "DiskIO":
 					copiedLabel["Device"] = slice.FieldByName("Device").String()
+				case "PhysicalDeviceIO":
+					copiedLabel["Device"] = slice.FieldByName("Device").String()
 				case "FileSys":
 					copiedLabel["MountPoint"] = slice.FieldByName("MountPoint").String()
 					copiedLabel["Name"] = slice.FieldByName("Name").String()

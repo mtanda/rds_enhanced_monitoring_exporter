@@ -6,21 +6,22 @@ import (
 )
 
 type RDSOSMetrics struct {
-	CpuUtilization     CpuUtilization    `json:"cpuUtilization"`
-	DiskIO             []DiskIO          `json:"diskIO"`
-	Engine             string            `json:"engine"`
-	FileSys            []FileSys         `json:"fileSys"`
-	InstanceID         string            `json:"instanceID"`
-	InstanceResourceID string            `json:"instanceResourceID"`
-	LoadAverageMinute  LoadAverageMinute `json:"loadAverageMinute"`
-	Memory             Memory            `json:"memory"`
-	Network            []Network         `json:"network"`
-	NumVCPUs           float64           `json:"numVCPUs"`
-	Swap               Swap              `json:"swap"`
-	Tasks              Tasks             `json:"tasks"`
-	Timestamp          string            `json:"timestamp"`
-	Uptime             string            `json:"uptime"`
-	Version            float64           `json:"version"`
+	CpuUtilization     CpuUtilization     `json:"cpuUtilization"`
+	DiskIO             []DiskIO           `json:"diskIO"`
+	PhysicalDeviceIO   []PhysicalDeviceIO `json:"physicalDeviceIO"`
+	Engine             string             `json:"engine"`
+	FileSys            []FileSys          `json:"fileSys"`
+	InstanceID         string             `json:"instanceID"`
+	InstanceResourceID string             `json:"instanceResourceID"`
+	LoadAverageMinute  LoadAverageMinute  `json:"loadAverageMinute"`
+	Memory             Memory             `json:"memory"`
+	Network            []Network          `json:"network"`
+	NumVCPUs           float64            `json:"numVCPUs"`
+	Swap               Swap               `json:"swap"`
+	Tasks              Tasks              `json:"tasks"`
+	Timestamp          string             `json:"timestamp"`
+	Uptime             string             `json:"uptime"`
+	Version            float64            `json:"version"`
 }
 
 type CpuUtilization struct {
@@ -55,6 +56,23 @@ type DiskIO struct {
 	ReadThroughput  float64 `json:"readThroughput"`
 	WriteThroughput float64 `json:"writeThroughput"`
 	DiskQueueDepth  float64 `json:"diskQueueDepth"`
+}
+
+type PhysicalDeviceIO struct {
+	WriteKbPS   float64 `json:"writeKbPS`
+	ReadIOsPS   float64 `json:"readIOsPS`
+	Await       float64 `json:"await`
+	ReadKbPS    float64 `json:"readKbPS`
+	RrqmPS      float64 `json:"rrqmPS`
+	Util        float64 `json:"util`
+	AvgQueueLen float64 `json:"avgQueueLen`
+	Tps         float64 `json:"tps`
+	ReadKb      float64 `json:"readKb`
+	Device      string  `json:"device`
+	WriteKb     float64 `json:"writeKb`
+	AvgReqSz    float64 `json:"avgReqSz`
+	WrqmPS      float64 `json:"wrqmPS`
+	WriteIOsPS  float64 `json:"writeIOsPS`
 }
 
 type FileSys struct {
