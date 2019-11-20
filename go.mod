@@ -5,7 +5,7 @@ go 1.12
 require (
 	github.com/alecthomas/template v0.0.0-20160405071501-a0175ee3bccc
 	github.com/alecthomas/units v0.0.0-20151022065526-2efee857e7cf
-	github.com/aws/aws-sdk-go v1.12.38
+	github.com/aws/aws-sdk-go v1.25.38
 	github.com/go-ini/ini v1.32.0
 	github.com/jmespath/go-jmespath v0.0.0-20160202185014-0b12d6b521d8
 	github.com/prometheus/common v0.0.0-20171117163051-2e54d0b93cba
