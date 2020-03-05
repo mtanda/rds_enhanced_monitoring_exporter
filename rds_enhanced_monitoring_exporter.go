@@ -174,6 +174,8 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 		for _, stream := range streams {
 			if time.Unix(*stream.(*cloudwatchlogs.LogStream).LastEventTimestamp/1000, 0).After(time.Now().Add(-1 * time.Hour)) {
 				resp.LogStreams = append(resp.LogStreams, stream.(*cloudwatchlogs.LogStream))
+			} else {
+				return false
 			}
 		}
 		return !lastPage
@@ -191,9 +193,19 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 	buf := make([]string, 0)
 	var mu sync.RWMutex
 	eg := errgroup.Group{}
+	ch := make(chan int, 5)
 	for _, stream := range resp.LogStreams {
+		ch <- 1
 		s := stream
 		eg.Go(func() error {
+			waitTime := time.Now().Add(1 * time.Second)
+			defer func() {
+				now := time.Now()
+				if now.Before(waitTime) {
+					time.Sleep(waitTime.Sub(now))
+				}
+				<-ch
+			}()
 			e.lock.RLock()
 			instance, ok := e.instanceMap[*s.LogStreamName]
 			if !ok {
@@ -293,6 +305,7 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 			mu.Lock()
 			buf = append(buf, outputMetrics(make([]string, 0), m, format, "", label)...)
 			mu.Unlock()
+
 			return nil
 		})
 	}
@@ -364,7 +377,10 @@ func main() {
 		log.Fatal(err)
 	}
 
-	exporter.collectRdsInfo()
+	err = exporter.collectRdsInfo()
+	if err != nil {
+		log.Warn(err)
+	}
 	go func() {
 		t := time.NewTimer(0)
 		defer t.Stop()
@@ -372,7 +388,7 @@ func main() {
 			select {
 			case <-t.C:
 				t.Reset(5 * time.Minute)
-				err := exporter.collectRdsInfo()
+				err = exporter.collectRdsInfo()
 				if err != nil {
 					log.Warn(err)
 				}
