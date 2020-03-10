@@ -245,6 +245,13 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 				switch l {
 				case "DBInstanceIdentifier":
 					label["DBInstanceIdentifier"] = *instance.DBInstanceIdentifier
+				case "DBClusterIdentifier":
+					switch *instance.Engine {
+					case "aurora":
+						fallthrough
+					case "aurora-mysql":
+						label["DBClusterIdentifier"] = *instance.DBClusterIdentifier
+					}
 				case "DBInstanceClass":
 					label["DBInstanceClass"] = *instance.DBInstanceClass
 				case "StorageType":
