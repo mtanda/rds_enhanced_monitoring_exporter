@@ -162,39 +162,45 @@ func outputMetrics(buf []string, m interface{}, format string, prefix string, la
 }
 
 func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
+	targetResourceId := r.URL.Query().Get("ResourceId")
+
 	targetLabels := r.URL.Query()["labels[]"]
 
-	var resp cloudwatchlogs.DescribeLogStreamsOutput
-	err := e.cwLogsClient.DescribeLogStreamsPages(&cloudwatchlogs.DescribeLogStreamsInput{
-		LogGroupName: aws.String("RDSOSMetrics"),
-		OrderBy:      aws.String("LastEventTime"),
-		Descending:   aws.Bool(true),
-	}, func(page *cloudwatchlogs.DescribeLogStreamsOutput, lastPage bool) bool {
-		streams, _ := awsutil.ValuesAtPath(page, "LogStreams")
-		for _, stream := range streams {
-			if time.Unix(*stream.(*cloudwatchlogs.LogStream).LastEventTimestamp/1000, 0).After(time.Now().Add(-1 * time.Hour)) {
-				resp.LogStreams = append(resp.LogStreams, stream.(*cloudwatchlogs.LogStream))
-			} else {
-				return false
+	targetStreams := make([]string, 1)
+	if len(targetResourceId) == 0 {
+		err := e.cwLogsClient.DescribeLogStreamsPages(&cloudwatchlogs.DescribeLogStreamsInput{
+			LogGroupName: aws.String("RDSOSMetrics"),
+			OrderBy:      aws.String("LastEventTime"),
+			Descending:   aws.Bool(true),
+		}, func(page *cloudwatchlogs.DescribeLogStreamsOutput, lastPage bool) bool {
+			streams, _ := awsutil.ValuesAtPath(page, "LogStreams")
+			for _, stream := range streams {
+				if time.Unix(*stream.(*cloudwatchlogs.LogStream).LastEventTimestamp/1000, 0).After(time.Now().Add(-1 * time.Hour)) {
+					targetStreams = append(targetStreams, *stream.(*cloudwatchlogs.LogStream).LogStreamName)
+				} else {
+					return false
+				}
 			}
-		}
-		return !lastPage
-	})
-	if err != nil {
-		if awsErr, ok := err.(awserr.Error); ok {
-			if awsErr.Code() == "ResourceNotFoundException" {
-				return
+			return !lastPage
+		})
+		if err != nil {
+			if awsErr, ok := err.(awserr.Error); ok {
+				if awsErr.Code() == "ResourceNotFoundException" {
+					return
+				}
 			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	} else {
+		targetStreams[0] = targetResourceId
 	}
 
 	buf := make([]string, 0)
 	var mu sync.RWMutex
 	eg := errgroup.Group{}
 	ch := make(chan int, 5)
-	for _, stream := range resp.LogStreams {
+	for _, stream := range targetStreams {
 		ch <- 1
 		s := stream
 		eg.Go(func() error {
@@ -207,7 +213,7 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 				<-ch
 			}()
 			e.lock.RLock()
-			instance, ok := e.instanceMap[*s.LogStreamName]
+			instance, ok := e.instanceMap[s]
 			if !ok {
 				e.lock.RUnlock()
 				return nil
@@ -216,7 +222,7 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 
 			events, err := e.cwLogsClient.GetLogEvents(&cloudwatchlogs.GetLogEventsInput{
 				LogGroupName:  aws.String("RDSOSMetrics"),
-				LogStreamName: s.LogStreamName,
+				LogStreamName: aws.String(s),
 				StartFromHead: aws.Bool(false),
 				Limit:         aws.Int64(1),
 			})
