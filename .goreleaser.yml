@@ -1,0 +1,46 @@
+builds:
+- main: ./
+  flags: -a -tags netgo
+  ldflags: |
+    -s -w
+  env:
+    - CGO_ENABLED=0
+  goos:
+    - linux
+    - darwin
+  goarch:
+    - amd64
+nfpms:
+  -
+    package_name: rds-enhanced-monitoring-exporter
+    file_name_template: 'rds-enhanced-monitoring-exporter_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}{{ if .Mips }}_{{ .Mips }}{{ end }}'
+    homepage: https://github.com/mtanda/rds_enhanced_monitoring_exporter
+    maintainer: Mitsuhiro Tanda
+    description: RDS Enhanced Monitoring Exporter for Prometheus
+    license: Apache 2.0
+    replacements:
+      darwin: Darwin
+      linux: Linux
+      windows: Windows
+      386: i386
+      amd64: x86_64
+    formats:
+      - deb
+      - rpm
+    files:
+      "packaging/deb/systemd/**": "/usr/lib/systemd/system"
+    config_files:
+      "packaging/deb/etc/default/rds_enhanced_monitoring_exporter": "/etc/default/rds_enhanced_monitoring_exporter"
+      "packaging/deb/usr/local/etc/rds_enhanced_monitoring_exporter.yml": "/usr/local/etc/rds_enhanced_monitoring_exporter.yml"
+    scripts:
+      postinstall: "packaging/scripts/postinstall.sh"
+      postremove: "packaging/scripts/postremove.sh"
+      preremove: "packaging/scripts/preremove.sh"
+changelog:
+  sort: asc
+  filters:
+    exclude:
+    - '^docs:'
+    - '^test:'
+    - '^cut:'
+    - '^typo'

@@ -1,0 +1,14 @@
+[Unit]
+Description=RDS Enhanced Monitoring Exporter for Prometheus
+After=network.target
+
+[Service]
+User=nobody
+Group=nogroup
+Type=simple
+Restart=always
+EnvironmentFile=/etc/default/rds_enhanced_monitoring_exporter
+ExecStart=/usr/local/bin/rds_enhanced_monitoring_exporter $ARGS
+
+[Install]
+WantedBy=multi-user.target
