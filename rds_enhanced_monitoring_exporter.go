@@ -152,10 +152,10 @@ func outputMetrics(buf []string, m interface{}, format string, prefix string, la
 				case "Network":
 					copiedLabel["Device"] = slice.FieldByName("Device").String()
 				}
-				buf = append(buf, outputMetrics(buf, slice.Interface(), format, prefix+sliceType+"_", copiedLabel)...)
+				buf = append(buf, outputMetrics(make([]string, 0), slice.Interface(), format, prefix+sliceType+"_", copiedLabel)...)
 			}
 		default:
-			buf = append(buf, outputMetrics(buf, field.Interface(), format, prefix+field.Type().Name()+"_", label)...)
+			buf = append(buf, outputMetrics(make([]string, 0), field.Interface(), format, prefix+field.Type().Name()+"_", label)...)
 		}
 	}
 	return buf
