@@ -177,8 +177,6 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 			for _, stream := range streams {
 				if time.Unix(*stream.(*cloudwatchlogs.LogStream).LastEventTimestamp/1000, 0).After(time.Now().Add(-1 * time.Hour)) {
 					targetStreams = append(targetStreams, *stream.(*cloudwatchlogs.LogStream).LogStreamName)
-				} else {
-					return false
 				}
 			}
 			return !lastPage
@@ -186,9 +184,11 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			if awsErr, ok := err.(awserr.Error); ok {
 				if awsErr.Code() == "ResourceNotFoundException" {
+					log.Infoln("RDSOSMetrics is not found")
 					return
 				}
 			}
+			log.Errorln("error: calling DescribeLogStreams is failed")
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -216,6 +216,7 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 			instance, ok := e.instanceMap[s]
 			if !ok {
 				e.lock.RUnlock()
+				log.Errorf("error: %s is not found in instanceMap", s)
 				return nil
 			}
 			e.lock.RUnlock()
@@ -227,18 +228,17 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 				Limit:         aws.Int64(1),
 			})
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return err
 			}
 
 			if len(events.Events) == 0 {
+				log.Infoln("GetLogEvents response is empty")
 				return nil
 			}
 
 			var m RDSOSMetrics
 			err = json.Unmarshal([]byte(*events.Events[0].Message), &m)
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return err
 			}
 
