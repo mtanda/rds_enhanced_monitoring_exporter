@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
@@ -12,17 +14,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/aws/aws-sdk-go/aws/awsutil"
-	"github.com/aws/aws-sdk-go/aws/ec2metadata"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
-	"github.com/aws/aws-sdk-go/service/cloudwatchlogs/cloudwatchlogsiface"
-	"github.com/aws/aws-sdk-go/service/rds"
-	"github.com/aws/aws-sdk-go/service/rds/rdsiface"
-	"github.com/aws/aws-sdk-go/service/resourcegroupstaggingapi"
-	"github.com/aws/aws-sdk-go/service/resourcegroupstaggingapi/resourcegroupstaggingapiiface"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	cloudwatchlogsTypes "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
+	"github.com/aws/aws-sdk-go-v2/service/rds"
+	rdsTypes "github.com/aws/aws-sdk-go-v2/service/rds/types"
+	"github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
 	"github.com/prometheus/common/log"
 	"golang.org/x/sync/errgroup"
 )
@@ -32,46 +31,47 @@ const (
 )
 
 type Exporter struct {
-	cwLogsClient cloudwatchlogsiface.CloudWatchLogsAPI
-	rdsClient    rdsiface.RDSAPI
-	rgtClient    resourcegroupstaggingapiiface.ResourceGroupsTaggingAPIAPI
+	cwLogsClient *cloudwatchlogs.Client
+	rdsClient    *rds.Client
+	rgtClient    *resourcegroupstaggingapi.Client
 	lock         sync.RWMutex
-	instanceMap  map[string]*rds.DBInstance
-	memberMap    map[string]*rds.DBClusterMember
+	instanceMap  map[string]rdsTypes.DBInstance
+	memberMap    map[string]rdsTypes.DBClusterMember
 	tagMap       map[string]map[string]string
 }
 
-func NewExporter(region string) (*Exporter, error) {
-	cfg := &aws.Config{Region: aws.String(region)}
-	sess := session.Must(session.NewSession(cfg))
+func NewExporter(ctx context.Context, region string) (*Exporter, error) {
+	awsCfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+	if err != nil {
+		return nil, err
+	}
 	return &Exporter{
-		cwLogsClient: cloudwatchlogs.New(sess),
-		rdsClient:    rds.New(sess),
-		rgtClient:    resourcegroupstaggingapi.New(sess),
-		instanceMap:  make(map[string]*rds.DBInstance),
-		memberMap:    make(map[string]*rds.DBClusterMember),
+		cwLogsClient: cloudwatchlogs.NewFromConfig(awsCfg),
+		rdsClient:    rds.NewFromConfig(awsCfg),
+		rgtClient:    resourcegroupstaggingapi.NewFromConfig(awsCfg),
+		instanceMap:  make(map[string]rdsTypes.DBInstance),
+		memberMap:    make(map[string]rdsTypes.DBClusterMember),
 		tagMap:       make(map[string]map[string]string),
 	}, nil
 }
 
-func (e *Exporter) collectRdsInfo() error {
+func (e *Exporter) collectRdsInfo(ctx context.Context) error {
 	var dbInstances rds.DescribeDBInstancesOutput
-	err := e.rdsClient.DescribeDBInstancesPages(&rds.DescribeDBInstancesInput{},
-		func(page *rds.DescribeDBInstancesOutput, lastPage bool) bool {
-			instances, _ := awsutil.ValuesAtPath(page, "DBInstances")
-			for _, instance := range instances {
-				dbInstances.DBInstances = append(dbInstances.DBInstances, instance.(*rds.DBInstance))
-			}
-			return !lastPage
-		})
-	if err != nil {
-		return err
+	rdsPaginator := rds.NewDescribeDBInstancesPaginator(e.rdsClient, &rds.DescribeDBInstancesInput{})
+	for rdsPaginator.HasMorePages() {
+		output, err := rdsPaginator.NextPage(ctx)
+		if err != nil {
+			return err
+		}
+		for _, instance := range output.DBInstances {
+			dbInstances.DBInstances = append(dbInstances.DBInstances, instance)
+		}
 	}
 
 	var dbClusters rds.DescribeDBClustersOutput
 	params := &rds.DescribeDBClustersInput{}
 	for {
-		resp, err := e.rdsClient.DescribeDBClusters(params)
+		resp, err := e.rdsClient.DescribeDBClusters(ctx, params)
 		if err != nil {
 			return err
 		}
@@ -83,20 +83,21 @@ func (e *Exporter) collectRdsInfo() error {
 	}
 
 	var resources resourcegroupstaggingapi.GetResourcesOutput
-	err = e.rgtClient.GetResourcesPages(&resourcegroupstaggingapi.GetResourcesInput{
-		ResourceTypeFilters: []*string{aws.String("rds:db")},
-		TagsPerPage:         aws.Int64(500),
-	}, func(page *resourcegroupstaggingapi.GetResourcesOutput, lastPage bool) bool {
-		mappings, _ := awsutil.ValuesAtPath(page, "ResourceTagMappingList")
-		for _, mapping := range mappings {
-			resources.ResourceTagMappingList = append(resources.ResourceTagMappingList, mapping.(*resourcegroupstaggingapi.ResourceTagMapping))
+	rgtPaginator := resourcegroupstaggingapi.NewGetResourcesPaginator(
+		e.rgtClient,
+		&resourcegroupstaggingapi.GetResourcesInput{
+			ResourceTypeFilters: []string{"rds:db"},
+			TagsPerPage:         aws.Int32(500),
+		},
+	)
+	for rgtPaginator.HasMorePages() {
+		output, err := rgtPaginator.NextPage(ctx)
+		if err != nil {
+			return err
 		}
-		//return !lastPage // not work
-		pagenationToken, _ := awsutil.ValuesAtPath(page, "PagenationToken")
-		return pagenationToken != nil
-	})
-	if err != nil {
-		return err
+		for _, mapping := range output.ResourceTagMappingList {
+			resources.ResourceTagMappingList = append(resources.ResourceTagMappingList, mapping)
+		}
 	}
 
 	e.lock.Lock()
@@ -162,35 +163,38 @@ func outputMetrics(buf []string, m interface{}, format string, prefix string, la
 }
 
 func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	targetResourceId := r.URL.Query().Get("ResourceId")
 
 	targetLabels := r.URL.Query()["labels[]"]
 
 	targetStreams := make([]string, 1)
 	if len(targetResourceId) == 0 {
-		err := e.cwLogsClient.DescribeLogStreamsPages(&cloudwatchlogs.DescribeLogStreamsInput{
-			LogGroupName: aws.String("RDSOSMetrics"),
-			OrderBy:      aws.String("LastEventTime"),
-			Descending:   aws.Bool(true),
-		}, func(page *cloudwatchlogs.DescribeLogStreamsOutput, lastPage bool) bool {
-			streams, _ := awsutil.ValuesAtPath(page, "LogStreams")
-			for _, stream := range streams {
-				if time.Unix(*stream.(*cloudwatchlogs.LogStream).LastEventTimestamp/1000, 0).After(time.Now().Add(-1 * time.Hour)) {
-					targetStreams = append(targetStreams, *stream.(*cloudwatchlogs.LogStream).LogStreamName)
-				}
-			}
-			return !lastPage
-		})
-		if err != nil {
-			if awsErr, ok := err.(awserr.Error); ok {
-				if awsErr.Code() == "ResourceNotFoundException" {
+		paginator := cloudwatchlogs.NewDescribeLogStreamsPaginator(
+			e.cwLogsClient,
+			&cloudwatchlogs.DescribeLogStreamsInput{
+				LogGroupName: aws.String("RDSOSMetrics"),
+				OrderBy:      "LastEventTime",
+				Descending:   aws.Bool(true),
+			},
+		)
+		for paginator.HasMorePages() {
+			output, err := paginator.NextPage(ctx)
+			if err != nil {
+				var rnfe *cloudwatchlogsTypes.ResourceNotFoundException
+				if errors.As(err, &rnfe) {
 					log.Infoln("RDSOSMetrics is not found")
 					return
 				}
+				log.Errorln("error: calling DescribeLogStreams is failed")
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
 			}
-			log.Errorln("error: calling DescribeLogStreams is failed")
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+			for _, stream := range output.LogStreams {
+				if time.Unix(*stream.LastEventTimestamp/1000, 0).After(time.Now().Add(-1 * time.Hour)) {
+					targetStreams = append(targetStreams, *stream.LogStreamName)
+				}
+			}
 		}
 	} else {
 		targetStreams[0] = targetResourceId
@@ -221,11 +225,11 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			e.lock.RUnlock()
 
-			events, err := e.cwLogsClient.GetLogEvents(&cloudwatchlogs.GetLogEventsInput{
+			events, err := e.cwLogsClient.GetLogEvents(ctx, &cloudwatchlogs.GetLogEventsInput{
 				LogGroupName:  aws.String("RDSOSMetrics"),
 				LogStreamName: aws.String(s),
 				StartFromHead: aws.Bool(false),
-				Limit:         aws.Int64(1),
+				Limit:         aws.Int32(1),
 			})
 			if err != nil {
 				return err
@@ -332,40 +336,46 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, strings.Join(buf, "\n"))
 }
 
+var regionCache = ""
+
 func GetDefaultRegion() (string, error) {
 	var region string
 
-	sess, err := session.NewSession()
+	if regionCache != "" {
+		return regionCache, nil
+	}
+
+	ctx := context.TODO()
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRetryMaxAttempts(0))
 	if err != nil {
 		return "", err
 	}
-	metadata := ec2metadata.New(sess, &aws.Config{
-		MaxRetries: aws.Int(0),
-	})
-	if metadata.Available() {
-		var err error
-		region, err = metadata.Region()
-		if err != nil {
-			return "", err
-		}
-	} else {
+
+	client := imds.NewFromConfig(cfg)
+	response, err := client.GetRegion(ctx, &imds.GetRegionInput{})
+	if err != nil {
 		region = os.Getenv("AWS_REGION")
 		if region == "" {
 			region = "us-east-1"
+		}
+	} else {
+		region = response.Region
+		if region != "" {
+			regionCache = region
 		}
 	}
 
 	return region, nil
 }
 
-type config struct {
+type flagConfig struct {
 	listenAddress string
 	metricsPath   string
 	configFile    string
 }
 
 func main() {
-	var cfg config
+	var cfg flagConfig
 	flag.StringVar(&cfg.listenAddress, "web.listen-address", ":9408", "Address to listen on for web endpoints.")
 	flag.StringVar(&cfg.metricsPath, "web.telemetry-path", "/metrics", "Path under which to expose metrics.")
 	flag.StringVar(&cfg.configFile, "config.file", "./rds_enhanced_monitoring_exporter.yml", "Configuration file path.")
@@ -385,12 +395,13 @@ func main() {
 		exporterCfg.Targets = make([]Target, 1)
 		exporterCfg.Targets[0] = Target{Region: region}
 	}
-	exporter, err := NewExporter(exporterCfg.Targets[0].Region)
+	ctx := context.TODO()
+	exporter, err := NewExporter(ctx, exporterCfg.Targets[0].Region)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	err = exporter.collectRdsInfo()
+	err = exporter.collectRdsInfo(ctx)
 	if err != nil {
 		log.Warn(err)
 	}
@@ -401,7 +412,7 @@ func main() {
 			select {
 			case <-t.C:
 				t.Reset(5 * time.Minute)
-				err = exporter.collectRdsInfo()
+				err = exporter.collectRdsInfo(ctx)
 				if err != nil {
 					log.Warn(err)
 				}
