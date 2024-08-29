@@ -38,6 +38,7 @@ type Exporter struct {
 	instanceMap  map[string]rdsTypes.DBInstance
 	memberMap    map[string]rdsTypes.DBClusterMember
 	tagMap       map[string]map[string]string
+	lastUpdated  map[string]map[string]int64
 }
 
 func NewExporter(ctx context.Context, region string) (*Exporter, error) {
@@ -52,6 +53,7 @@ func NewExporter(ctx context.Context, region string) (*Exporter, error) {
 		instanceMap:  make(map[string]rdsTypes.DBInstance),
 		memberMap:    make(map[string]rdsTypes.DBClusterMember),
 		tagMap:       make(map[string]map[string]string),
+		lastUpdated:  make(map[string]map[string]int64),
 	}, nil
 }
 
@@ -164,6 +166,10 @@ func outputMetrics(buf []string, m interface{}, format string, prefix string, la
 
 func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	remoteAddr := strings.Split(r.RemoteAddr, ":")[0]
+	if _, ok := e.lastUpdated[remoteAddr]; !ok {
+		e.lastUpdated[remoteAddr] = make(map[string]int64)
+	}
 	targetResourceId := r.URL.Query().Get("ResourceId")
 
 	targetLabels := r.URL.Query()["labels[]"]
@@ -225,12 +231,16 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			e.lock.RUnlock()
 
-			events, err := e.cwLogsClient.GetLogEvents(ctx, &cloudwatchlogs.GetLogEventsInput{
+			input := &cloudwatchlogs.GetLogEventsInput{
 				LogGroupName:  aws.String("RDSOSMetrics"),
 				LogStreamName: aws.String(s),
 				StartFromHead: aws.Bool(false),
-				Limit:         aws.Int32(1),
-			})
+				Limit:         aws.Int32(3),
+			}
+			if _, ok := e.lastUpdated[remoteAddr][s]; ok {
+				input.StartTime = aws.Int64(e.lastUpdated[remoteAddr][s] + 1)
+			}
+			events, err := e.cwLogsClient.GetLogEvents(ctx, input)
 			if err != nil {
 				return err
 			}
@@ -241,87 +251,92 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			var m RDSOSMetrics
-			err = json.Unmarshal([]byte(*events.Events[0].Message), &m)
-			if err != nil {
-				return err
-			}
+			for _, event := range events.Events {
+				err = json.Unmarshal([]byte(*event.Message), &m)
+				if err != nil {
+					return err
+				}
 
-			timestamp := *events.Events[0].Timestamp / 1000
-			format := namespace + "_%s{%s} %f " + strconv.FormatInt(timestamp, 10) + "000"
+				timestamp := *event.Timestamp / 1000
+				if *event.Timestamp > e.lastUpdated[remoteAddr][s] {
+					e.lastUpdated[remoteAddr][s] = *event.Timestamp
+				}
+				format := namespace + "_%s{%s} %f " + strconv.FormatInt(timestamp, 10) + "000"
 
-			label := Labels{}
-			targetTags := make(map[string]bool)
-			for _, l := range targetLabels {
-				switch l {
-				case "DBInstanceIdentifier":
-					label["DBInstanceIdentifier"] = *instance.DBInstanceIdentifier
-				case "DBClusterIdentifier":
-					switch *instance.Engine {
-					case "aurora":
-						fallthrough
-					case "aurora-mysql":
-						label["DBClusterIdentifier"] = *instance.DBClusterIdentifier
-					}
-				case "DBInstanceClass":
-					label["DBInstanceClass"] = *instance.DBInstanceClass
-				case "StorageType":
-					label["StorageType"] = *instance.StorageType
-				case "AvailabilityZone":
-					label["AvailabilityZone"] = *instance.AvailabilityZone
-				case "DBSubnetGroup.VpcId":
-					label["VpcId"] = *instance.DBSubnetGroup.VpcId
-				case "Engine":
-					label["Engine"] = *instance.Engine
-				case "EngineVersion":
-					label["EngineVersion"] = *instance.EngineVersion
-				case "IsClusterWriter":
-					e.lock.RLock()
-					if member, ok := e.memberMap[*instance.DBInstanceIdentifier]; ok {
-						if *member.IsClusterWriter {
-							label["IsClusterWriter"] = "true"
-						} else {
-							label["IsClusterWriter"] = "false"
+				label := Labels{}
+				targetTags := make(map[string]bool)
+				for _, l := range targetLabels {
+					switch l {
+					case "DBInstanceIdentifier":
+						label["DBInstanceIdentifier"] = *instance.DBInstanceIdentifier
+					case "DBClusterIdentifier":
+						switch *instance.Engine {
+						case "aurora":
+							fallthrough
+						case "aurora-mysql":
+							label["DBClusterIdentifier"] = *instance.DBClusterIdentifier
 						}
-					}
-					e.lock.RUnlock()
-				case "RDSInstanceType":
-					e.lock.RLock()
-					switch *instance.Engine {
-					case "aurora":
-						fallthrough
-					case "aurora-mysql":
+					case "DBInstanceClass":
+						label["DBInstanceClass"] = *instance.DBInstanceClass
+					case "StorageType":
+						label["StorageType"] = *instance.StorageType
+					case "AvailabilityZone":
+						label["AvailabilityZone"] = *instance.AvailabilityZone
+					case "DBSubnetGroup.VpcId":
+						label["VpcId"] = *instance.DBSubnetGroup.VpcId
+					case "Engine":
+						label["Engine"] = *instance.Engine
+					case "EngineVersion":
+						label["EngineVersion"] = *instance.EngineVersion
+					case "IsClusterWriter":
+						e.lock.RLock()
 						if member, ok := e.memberMap[*instance.DBInstanceIdentifier]; ok {
 							if *member.IsClusterWriter {
-								label["RDSInstanceType"] = "writer"
+								label["IsClusterWriter"] = "true"
 							} else {
-								label["RDSInstanceType"] = "reader"
+								label["IsClusterWriter"] = "false"
 							}
 						}
-					case "mysql":
-						if instance.ReadReplicaSourceDBInstanceIdentifier == nil {
-							label["RDSInstanceType"] = "master"
-						} else {
-							label["RDSInstanceType"] = "slave"
+						e.lock.RUnlock()
+					case "RDSInstanceType":
+						e.lock.RLock()
+						switch *instance.Engine {
+						case "aurora":
+							fallthrough
+						case "aurora-mysql":
+							if member, ok := e.memberMap[*instance.DBInstanceIdentifier]; ok {
+								if *member.IsClusterWriter {
+									label["RDSInstanceType"] = "writer"
+								} else {
+									label["RDSInstanceType"] = "reader"
+								}
+							}
+						case "mysql":
+							if instance.ReadReplicaSourceDBInstanceIdentifier == nil {
+								label["RDSInstanceType"] = "master"
+							} else {
+								label["RDSInstanceType"] = "slave"
 
+							}
+						}
+						e.lock.RUnlock()
+					default:
+						if strings.Index(l, "tag_") == 0 {
+							targetTags[l[4:]] = true
 						}
 					}
-					e.lock.RUnlock()
-				default:
-					if strings.Index(l, "tag_") == 0 {
-						targetTags[l[4:]] = true
+				}
+				e.lock.RLock()
+				for k, v := range e.tagMap[*instance.DBInstanceIdentifier] {
+					if targetTags[k] {
+						label["tag_"+k] = v
 					}
 				}
+				e.lock.RUnlock()
+				mu.Lock()
+				buf = append(buf, outputMetrics(make([]string, 0), m, format, "", label)...)
+				mu.Unlock()
 			}
-			e.lock.RLock()
-			for k, v := range e.tagMap[*instance.DBInstanceIdentifier] {
-				if targetTags[k] {
-					label["tag_"+k] = v
-				}
-			}
-			e.lock.RUnlock()
-			mu.Lock()
-			buf = append(buf, outputMetrics(make([]string, 0), m, format, "", label)...)
-			mu.Unlock()
 
 			return nil
 		})
