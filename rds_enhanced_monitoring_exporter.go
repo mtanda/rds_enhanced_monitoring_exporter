@@ -396,7 +396,7 @@ func main() {
 		exporterCfg.Targets[0] = Target{Region: region}
 	}
 	ctx := context.TODO()
-	exporter, err := NewExporter(ctx, exporterCfg.Targets[0].Region)
+	exporter, err := NewExporter(ctx, region)
 	if err != nil {
 		log.Fatal(err)
 	}
