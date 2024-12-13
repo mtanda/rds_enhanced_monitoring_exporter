@@ -348,6 +348,7 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(fmt.Sprintf("error: %s", err)))
 		return
 	}
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
 	fmt.Fprintf(w, strings.Join(buf, "\n"))
 }
 
