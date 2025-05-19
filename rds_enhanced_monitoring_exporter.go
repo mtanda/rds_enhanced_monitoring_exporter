@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"reflect"
@@ -22,7 +23,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	rdsTypes "github.com/aws/aws-sdk-go-v2/service/rds/types"
 	"github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
-	"github.com/prometheus/common/log"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -30,10 +30,24 @@ const (
 	namespace = "rds_enhanced_monitoring"
 )
 
+type CloudWatchLogsAPI interface {
+	cloudwatchlogs.DescribeLogStreamsAPIClient
+	cloudwatchlogs.GetLogEventsAPIClient
+}
+
+type RDSAPI interface {
+	rds.DescribeDBInstancesAPIClient
+	rds.DescribeDBClustersAPIClient
+}
+
+type ResourceGroupsTaggingAPI interface {
+	resourcegroupstaggingapi.GetResourcesAPIClient
+}
+
 type Exporter struct {
-	cwLogsClient *cloudwatchlogs.Client
-	rdsClient    *rds.Client
-	rgtClient    *resourcegroupstaggingapi.Client
+	cwLogsClient CloudWatchLogsAPI
+	rdsClient    RDSAPI
+	rgtClient    ResourceGroupsTaggingAPI
 	lock         sync.RWMutex
 	instanceMap  map[string]rdsTypes.DBInstance
 	memberMap    map[string]rdsTypes.DBClusterMember
@@ -57,6 +71,18 @@ func NewExporter(ctx context.Context, region string) (*Exporter, error) {
 	}, nil
 }
 
+func NewExporterWithClients(cw CloudWatchLogsAPI, rds RDSAPI, rgt ResourceGroupsTaggingAPI) *Exporter {
+	return &Exporter{
+		cwLogsClient: cw,
+		rdsClient:    rds,
+		rgtClient:    rgt,
+		instanceMap:  make(map[string]rdsTypes.DBInstance),
+		memberMap:    make(map[string]rdsTypes.DBClusterMember),
+		tagMap:       make(map[string]map[string]string),
+		lastUpdated:  make(map[string]map[string]int64),
+	}
+}
+
 func (e *Exporter) collectRdsInfo(ctx context.Context) error {
 	var dbInstances rds.DescribeDBInstancesOutput
 	rdsPaginator := rds.NewDescribeDBInstancesPaginator(e.rdsClient, &rds.DescribeDBInstancesInput{})
@@ -65,9 +91,7 @@ func (e *Exporter) collectRdsInfo(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		for _, instance := range output.DBInstances {
-			dbInstances.DBInstances = append(dbInstances.DBInstances, instance)
-		}
+		dbInstances.DBInstances = append(dbInstances.DBInstances, output.DBInstances...)
 	}
 
 	var dbClusters rds.DescribeDBClustersOutput
@@ -97,9 +121,7 @@ func (e *Exporter) collectRdsInfo(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		for _, mapping := range output.ResourceTagMappingList {
-			resources.ResourceTagMappingList = append(resources.ResourceTagMappingList, mapping)
-		}
+		resources.ResourceTagMappingList = append(resources.ResourceTagMappingList, output.ResourceTagMappingList...)
 	}
 
 	e.lock.Lock()
@@ -189,10 +211,10 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				var rnfe *cloudwatchlogsTypes.ResourceNotFoundException
 				if errors.As(err, &rnfe) {
-					log.Infoln("RDSOSMetrics is not found")
+					slog.Info("RDSOSMetrics is not found")
 					return
 				}
-				log.Errorln("error: calling DescribeLogStreams is failed")
+				slog.Error("error: calling DescribeLogStreams is failed")
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
@@ -226,7 +248,7 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 			instance, ok := e.instanceMap[s]
 			if !ok {
 				e.lock.RUnlock()
-				log.Errorf("error: %s is not found in instanceMap", s)
+				slog.Error(fmt.Sprintf("error: %s is not found in instanceMap", s))
 				return nil
 			}
 			e.lock.RUnlock()
@@ -246,7 +268,7 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if len(events.Events) == 0 {
-				log.Infoln("GetLogEvents response is empty")
+				slog.Info("GetLogEvents response is empty")
 				return nil
 			}
 
@@ -343,13 +365,13 @@ func (e *Exporter) exportHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := eg.Wait(); err != nil {
-		log.Errorln("error: ", err)
+		slog.Error("failed to wait", "err", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(fmt.Sprintf("error: %s", err)))
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-	fmt.Fprintf(w, strings.Join(buf, "\n"))
+	w.Write([]byte(strings.Join(buf, "\n")))
 }
 
 var regionCache = ""
@@ -399,13 +421,15 @@ func main() {
 
 	exporterCfg, err := LoadConfig(cfg.configFile)
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("failed to load config", "err", err)
+		os.Exit(1)
 	}
 
 	// set default region
 	region, err := GetDefaultRegion()
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("failed to get default region", "err", err)
+		os.Exit(1)
 	}
 	if len(exporterCfg.Targets) == 0 {
 		exporterCfg.Targets = make([]Target, 1)
@@ -414,24 +438,22 @@ func main() {
 	ctx := context.TODO()
 	exporter, err := NewExporter(ctx, region)
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("failed to new exporter", "err", err)
+		os.Exit(1)
 	}
 
 	err = exporter.collectRdsInfo(ctx)
 	if err != nil {
-		log.Warn(err)
+		slog.Warn("failed to collect rds info", "err", err)
 	}
 	go func() {
 		t := time.NewTimer(0)
 		defer t.Stop()
-		for {
-			select {
-			case <-t.C:
-				t.Reset(5 * time.Minute)
-				err = exporter.collectRdsInfo(ctx)
-				if err != nil {
-					log.Warn(err)
-				}
+		for range t.C {
+			t.Reset(5 * time.Minute)
+			err = exporter.collectRdsInfo(ctx)
+			if err != nil {
+				slog.Warn("failed to collect rds info", "err", err)
 			}
 		}
 	}()
@@ -447,9 +469,10 @@ func main() {
 			</html>`))
 	})
 
-	log.Infoln("Listening on", cfg.listenAddress)
+	slog.Info("Listening on " + cfg.listenAddress)
 	err = http.ListenAndServe(cfg.listenAddress, nil)
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("failed to listen", "err", err)
+		os.Exit(1)
 	}
 }

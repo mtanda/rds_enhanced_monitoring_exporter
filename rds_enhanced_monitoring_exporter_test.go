@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -9,34 +10,27 @@ import (
 	"strings"
 	"testing"
 
+	cloudwatchlogs "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	cloudwatchlogsTypes "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
+	rds "github.com/aws/aws-sdk-go-v2/service/rds"
+	rdsTypes "github.com/aws/aws-sdk-go-v2/service/rds/types"
+	rgt "github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
+	rgtTypes "github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi/types"
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
-	"github.com/aws/aws-sdk-go/service/cloudwatchlogs/cloudwatchlogsiface"
-	"github.com/aws/aws-sdk-go/service/rds"
-	"github.com/aws/aws-sdk-go/service/rds/rdsiface"
-	"github.com/aws/aws-sdk-go/service/resourcegroupstaggingapi"
-	"github.com/aws/aws-sdk-go/service/resourcegroupstaggingapi/resourcegroupstaggingapiiface"
 )
 
-type mockedCloudWatchLogs struct {
-	cloudwatchlogsiface.CloudWatchLogsAPI
-}
+type mockedCloudWatchLogs struct{}
 
-func (c mockedCloudWatchLogs) DescribeLogStreamsPages(input *cloudwatchlogs.DescribeLogStreamsInput, fn func(*cloudwatchlogs.DescribeLogStreamsOutput, bool) bool) error {
-	fn(&cloudwatchlogs.DescribeLogStreamsOutput{
-		LogStreams: []*cloudwatchlogs.LogStream{
-			{
-				LogStreamName: aws.String("db-AAAAAAAAAAAAAAAAAAAAAAAAAA"),
-			},
-			{
-				LogStreamName: aws.String("db-BBBBBBBBBBBBBBBBBBBBBBBBBB"),
-			},
+func (c *mockedCloudWatchLogs) DescribeLogStreams(ctx context.Context, input *cloudwatchlogs.DescribeLogStreamsInput, optFns ...func(*cloudwatchlogs.Options)) (*cloudwatchlogs.DescribeLogStreamsOutput, error) {
+	return &cloudwatchlogs.DescribeLogStreamsOutput{
+		LogStreams: []cloudwatchlogsTypes.LogStream{
+			{LogStreamName: aws.String("db-AAAAAAAAAAAAAAAAAAAAAAAAAA"), LastEventTimestamp: aws.Int64(1486977657000)},
+			{LogStreamName: aws.String("db-BBBBBBBBBBBBBBBBBBBBBBBBBB"), LastEventTimestamp: aws.Int64(1486977657000)},
 		},
-	}, false)
-	return nil
+	}, nil
 }
 
-func (c mockedCloudWatchLogs) GetLogEvents(input *cloudwatchlogs.GetLogEventsInput) (*cloudwatchlogs.GetLogEventsOutput, error) {
+func (c *mockedCloudWatchLogs) GetLogEvents(ctx context.Context, input *cloudwatchlogs.GetLogEventsInput, optFns ...func(*cloudwatchlogs.Options)) (*cloudwatchlogs.GetLogEventsOutput, error) {
 	genMessage := func(instanceID string, instanceResourceID string) string {
 		return strings.Replace(strings.Replace(`
 {
@@ -136,7 +130,7 @@ func (c mockedCloudWatchLogs) GetLogEvents(input *cloudwatchlogs.GetLogEventsInp
 }`, "__instanceID__", instanceID, 1), "__instanceResourceID__", instanceResourceID, 1)
 	}
 	return &cloudwatchlogs.GetLogEventsOutput{
-		Events: []*cloudwatchlogs.OutputLogEvent{
+		Events: []cloudwatchlogsTypes.OutputLogEvent{
 			{
 				Message:   aws.String(genMessage("AAA", "db-AAAAAAAAAAAAAAAAAAAAAAAAAA")),
 				Timestamp: aws.Int64(1486977657000),
@@ -149,20 +143,18 @@ func (c mockedCloudWatchLogs) GetLogEvents(input *cloudwatchlogs.GetLogEventsInp
 	}, nil
 }
 
-type mockedRDS struct {
-	rdsiface.RDSAPI
-}
+type mockedRDS struct{}
 
-func (c mockedRDS) DescribeDBInstancesPages(input *rds.DescribeDBInstancesInput, fn func(*rds.DescribeDBInstancesOutput, bool) bool) error {
-	fn(&rds.DescribeDBInstancesOutput{
-		DBInstances: []*rds.DBInstance{
+func (c *mockedRDS) DescribeDBInstances(ctx context.Context, input *rds.DescribeDBInstancesInput, optFns ...func(*rds.Options)) (*rds.DescribeDBInstancesOutput, error) {
+	return &rds.DescribeDBInstancesOutput{
+		DBInstances: []rdsTypes.DBInstance{
 			{
 				DbiResourceId:        aws.String("db-AAAAAAAAAAAAAAAAAAAAAAAAAA"),
 				DBInstanceIdentifier: aws.String("AAA"),
 				DBInstanceClass:      aws.String("db.t2.meduim"),
 				StorageType:          aws.String("gp2"),
 				AvailabilityZone:     aws.String("us-east-1a"),
-				DBSubnetGroup: &rds.DBSubnetGroup{
+				DBSubnetGroup: &rdsTypes.DBSubnetGroup{
 					VpcId: aws.String("vpc-aaaaaaaa"),
 				},
 				Engine:        aws.String("mysql"),
@@ -174,22 +166,21 @@ func (c mockedRDS) DescribeDBInstancesPages(input *rds.DescribeDBInstancesInput,
 				DBInstanceClass:      aws.String("db.t2.meduim"),
 				StorageType:          aws.String("gp2"),
 				AvailabilityZone:     aws.String("us-east-1a"),
-				DBSubnetGroup: &rds.DBSubnetGroup{
+				DBSubnetGroup: &rdsTypes.DBSubnetGroup{
 					VpcId: aws.String("vpc-aaaaaaaa"),
 				},
 				Engine:        aws.String("mysql"),
 				EngineVersion: aws.String("5.7"),
 			},
 		},
-	}, false)
-	return nil
+	}, nil
 }
 
-func (c mockedRDS) DescribeDBClusters(input *rds.DescribeDBClustersInput) (*rds.DescribeDBClustersOutput, error) {
+func (c *mockedRDS) DescribeDBClusters(ctx context.Context, input *rds.DescribeDBClustersInput, optFns ...func(*rds.Options)) (*rds.DescribeDBClustersOutput, error) {
 	return &rds.DescribeDBClustersOutput{
-		DBClusters: []*rds.DBCluster{
+		DBClusters: []rdsTypes.DBCluster{
 			{
-				DBClusterMembers: []*rds.DBClusterMember{
+				DBClusterMembers: []rdsTypes.DBClusterMember{
 					{
 						DBInstanceIdentifier: aws.String("AAA"),
 						IsClusterWriter:      aws.Bool(true),
@@ -204,16 +195,14 @@ func (c mockedRDS) DescribeDBClusters(input *rds.DescribeDBClustersInput) (*rds.
 	}, nil
 }
 
-type mockedRGT struct {
-	resourcegroupstaggingapiiface.ResourceGroupsTaggingAPIAPI
-}
+type mockedRGT struct{}
 
-func (c mockedRGT) GetResourcesPages(input *resourcegroupstaggingapi.GetResourcesInput, fn func(*resourcegroupstaggingapi.GetResourcesOutput, bool) bool) error {
-	fn(&resourcegroupstaggingapi.GetResourcesOutput{
-		ResourceTagMappingList: []*resourcegroupstaggingapi.ResourceTagMapping{
+func (c *mockedRGT) GetResources(ctx context.Context, input *rgt.GetResourcesInput, optFns ...func(*rgt.Options)) (*rgt.GetResourcesOutput, error) {
+	return &rgt.GetResourcesOutput{
+		ResourceTagMappingList: []rgtTypes.ResourceTagMapping{
 			{
 				ResourceARN: aws.String("arn:aws:rds:us-east-1:111111111111:db:AAA"),
-				Tags: []*resourcegroupstaggingapi.Tag{
+				Tags: []rgtTypes.Tag{
 					{
 						Key:   aws.String("Environment"),
 						Value: aws.String("production"),
@@ -222,7 +211,7 @@ func (c mockedRGT) GetResourcesPages(input *resourcegroupstaggingapi.GetResource
 			},
 			{
 				ResourceARN: aws.String("arn:aws:rds:us-east-1:111111111111:db:BBB"),
-				Tags: []*resourcegroupstaggingapi.Tag{
+				Tags: []rgtTypes.Tag{
 					{
 						Key:   aws.String("Environment"),
 						Value: aws.String("production"),
@@ -230,25 +219,25 @@ func (c mockedRGT) GetResourcesPages(input *resourcegroupstaggingapi.GetResource
 				},
 			},
 		},
-	}, false)
-	return nil
+	}, nil
 }
 
 func TestE2E(t *testing.T) {
-	e := &Exporter{
-		cwLogsClient: mockedCloudWatchLogs{},
-		rdsClient:    mockedRDS{},
-		rgtClient:    mockedRGT{},
-		instanceMap:  make(map[string]*rds.DBInstance),
-		memberMap:    make(map[string]*rds.DBClusterMember),
-		tagMap:       make(map[string]map[string]string),
+	e := NewExporterWithClients(
+		&mockedCloudWatchLogs{},
+		&mockedRDS{},
+		&mockedRGT{},
+	)
+	err := e.collectRdsInfo(context.Background())
+	if err != nil {
+		t.Fatalf("collectRdsInfo failed: %v", err)
 	}
-	e.collectRdsInfo()
 	writer := httptest.NewRecorder()
 	request := &http.Request{
 		URL: &url.URL{
-			RawQuery: "labels[]=DBInstanceIdentifier&labels[]=DBInstanceClass&labels[]=StorageType&labels[]=AvailabilityZone&labels[]=DBSubnetGroup.VpcId&labels[]=Engine&labels[]=EngineVersion&labels[]=IsClusterWriter&labels[]=tag_Environment",
+			RawQuery: "ResourceId=db-AAAAAAAAAAAAAAAAAAAAAAAAAA&labels[]=DBInstanceIdentifier&labels[]=DBInstanceClass&labels[]=StorageType&labels[]=AvailabilityZone&labels[]=DBSubnetGroup.VpcId&labels[]=Engine&labels[]=EngineVersion&labels[]=IsClusterWriter&labels[]=tag_Environment",
 		},
+		RemoteAddr: "127.0.0.1:9408",
 	}
 	e.exportHandler(writer, request)
 
