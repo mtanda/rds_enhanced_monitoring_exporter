@@ -2,23 +2,9 @@
 
 Export RDS Enhanced Monitoring Metrics.
 
-## Getting Started
-
-To run it:
-
-```bash
-./rds_enhanced_monitoring_exporter [flags]
-```
-
-Help on flags:
-
-```bash
-./rds_enhanced_monitoring_exporter --help
-```
-
 ## Usage
 
-### AWS IAM
+### Setup
 
 Allow following API call for this exporter.
 
@@ -52,12 +38,26 @@ Allow following API call for this exporter.
 }
 ```
 
-### Building
+### How to run
 
 ```bash
+./rds_enhanced_monitoring_exporter [flags]
+```
+
+You can then query metrics from the exporter using a request like the following:
+
+```sh
+curl 'http://localhost:9408/metrics?ResourceId=db-ABCDEFGHIJKLMNOPQRSTUVWXYZ&labels[]=AvailabilityZone&labels[]=DBClusterIdentifier&labels[]=DBInstanceClass&labels[]=DBInstanceIdentifier&labels[]=Engine&labels[]=IsClusterWriter&labels[]=RDSInstanceType&labels[]=tag_Role&labels[]=tag_Cluster&labels[]=tag_Environment'
+```
+
+## Building
+
+```sh
 make
 ```
 
-## License
+## Testing
 
-Apache License 2.0, see [LICENSE](https://github.com/mtanda/rds_enhanced_monitoring_exporter/blob/master/LICENSE).
+```sh
+go test ./...
+```
